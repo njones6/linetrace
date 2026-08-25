@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linetrace"
+version = "0.1.0"
+description = "Trace where a line in an old text ended up in a new one"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+[project.scripts]
+linetrace = "linetrace.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["linetrace*"]
