@@ -16,7 +16,7 @@ linetrace OLD NEW --line N
 ```
 
 `OLD` and `NEW` are file paths. Either one (but not both) can be `-` to read
-from stdin.
+from stdin. `N` can be a single line number or an inclusive range like `10-14`.
 
 ### Two files on disk
 
@@ -42,11 +42,24 @@ $ linetrace v1.txt v2.txt --line 5
 line 5: deleted, no counterpart in the new text
 ```
 
+### A range of lines
+
+```
+$ linetrace old_config.yaml new_config.yaml --line 15-18
+line 15: unchanged, now at line 19
+line 16: unchanged, now at line 20
+line 17: unchanged, now at line 21
+line 18: modified, now approximately at line 22
+```
+
+Each line in the range is resolved independently and printed on its own
+line, in order.
+
 ### Exit codes
 
-`0` if the line was found (unchanged, modified, or deleted are all "found"
-outcomes), `1` if the line number doesn't exist in the old text, `2` on
-usage errors such as an unreadable file or using `-` twice.
+`0` if every requested line was found (unchanged, modified, or deleted are
+all "found" outcomes), `1` if any requested line number doesn't exist in the
+old text, `2` on usage errors such as an unreadable file or using `-` twice.
 
 ## How it works
 
@@ -82,5 +95,5 @@ python -m linetrace OLD NEW --line N
 
 ## Status
 
-Early skeleton. Single-line queries only for now; see the issues for what's
-planned next.
+Early skeleton. Supports single lines and ranges; JSON output, unified diff
+input, a real test suite, and CRLF/encoding handling are still to come.
