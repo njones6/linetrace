@@ -55,6 +55,29 @@ line 18: modified, now approximately at line 22
 Each line in the range is resolved independently and printed on its own
 line, in order.
 
+### JSON output
+
+```
+$ linetrace old_config.yaml new_config.yaml --line 15-18 --format json
+[
+  {
+    "line": 15,
+    "status": "unchanged",
+    "new_line": 19
+  },
+  {
+    "line": 18,
+    "status": "modified",
+    "new_line": 22
+  }
+]
+```
+
+`new_line` is `null` for `deleted` and `out_of_range` results. An
+`out_of_range` record also carries `old_line_count`, the number of lines in
+the old text, for the same reason the text output includes it in its
+message.
+
 ### Exit codes
 
 `0` if every requested line was found (unchanged, modified, or deleted are
@@ -95,5 +118,6 @@ python -m linetrace OLD NEW --line N
 
 ## Status
 
-Early skeleton. Supports single lines and ranges; JSON output, unified diff
-input, a real test suite, and CRLF/encoding handling are still to come.
+Early skeleton. Supports single lines and ranges, plus text and JSON output;
+unified diff input, a real test suite, and CRLF/encoding handling are still
+to come.

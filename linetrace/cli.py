@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 
 from . import trace_range
@@ -53,7 +54,23 @@ def build_parser():
         metavar="N|N-M",
         help="1-indexed line number, or inclusive range N-M, in the old file to trace",
     )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="output format (default: text)",
+    )
     return parser
+
+
+def format_json(results, old_line_count):
+    records = []
+    for line_no, status, new_line in results:
+        record = {"line": line_no, "status": status, "new_line": new_line}
+        if status == "out_of_range":
+            record["old_line_count"] = old_line_count
+        records.append(record)
+    return json.dumps(records, indent=2)
 
 
 def main(argv=None):
@@ -72,15 +89,17 @@ def main(argv=None):
 
     start, end = args.line
     results = trace_range(old_lines, new_lines, start, end)
+    any_out_of_range = any(status == "out_of_range" for _, status, _ in results)
 
-    any_out_of_range = False
-    for line_no, status, new_line in results:
-        if status == "out_of_range":
-            any_out_of_range = True
-            message = STATUS_TEXT[status].format(line=line_no, count=len(old_lines))
-        else:
-            message = STATUS_TEXT[status].format(n=new_line)
-        print(f"line {line_no}: {message}")
+    if args.format == "json":
+        print(format_json(results, len(old_lines)))
+    else:
+        for line_no, status, new_line in results:
+            if status == "out_of_range":
+                message = STATUS_TEXT[status].format(line=line_no, count=len(old_lines))
+            else:
+                message = STATUS_TEXT[status].format(n=new_line)
+            print(f"line {line_no}: {message}")
 
     return 1 if any_out_of_range else 0
 
