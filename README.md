@@ -118,6 +118,6 @@ python -m linetrace OLD NEW --line N
 
 ## Status
 
-Early skeleton. Supports single lines and ranges, plus text and JSON output;
-unified diff input, a real test suite, and CRLF/encoding handling are still
-to come.
+Early skeleton. Supports single lines and ranges, plus text and JSON output,
+with a test suite covering the opcode resolution logic. Unified diff input
+and CRLF/encoding handling are still to come.
