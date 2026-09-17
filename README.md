@@ -13,10 +13,12 @@ still there unchanged, moved and modified, or gone.
 
 ```
 linetrace OLD NEW --line N
+linetrace OLD --diff PATCH --line N
 ```
 
-`OLD` and `NEW` are file paths. Either one (but not both) can be `-` to read
-from stdin. `N` can be a single line number or an inclusive range like `10-14`.
+`OLD` and `NEW` are file paths. Exactly one of `NEW` or `--diff` is required.
+Among `OLD`, `NEW`, and `PATCH`, at most one can be `-` to read from stdin.
+`N` can be a single line number or an inclusive range like `10-14`.
 
 ### Two files on disk
 
@@ -34,6 +36,23 @@ just to diff against history.
 $ git show HEAD~3:src/server.py | linetrace - src/server.py --line 88
 line 88: modified, now approximately at line 94
 ```
+
+### Tracing against a patch instead of a new file
+
+If you have a unified diff (a saved PR patch, the output of `git diff`, or
+`diff -u OLD NEW`) but not a checkout of the new version, pass it with
+`--diff` instead of a `NEW` argument. Only `OLD` is read from disk; the
+patch's hunk headers and +/-/context lines are enough to work out where
+lines land.
+
+```
+$ git diff main..feature -- src/server.py > server.patch
+$ linetrace src/server.py --diff server.patch --line 88
+line 88: modified, now approximately at line 94
+```
+
+A patch that only covers part of the file works fine: lines outside any
+hunk are assumed unchanged, shifted by whatever hunks came before them.
 
 ### A line that no longer exists
 
@@ -86,9 +105,11 @@ old text, `2` on usage errors such as an unreadable file or using `-` twice.
 
 ## How it works
 
-`linetrace` runs Python's `difflib.SequenceMatcher` over the two texts,
-split into lines, and looks at which opcode block contains the requested
-line:
+With two files, `linetrace` runs Python's `difflib.SequenceMatcher` over
+the two texts, split into lines. With `--diff`, it parses the patch's hunk
+headers and line prefixes into the same shape of opcode instead, without
+ever reading a new file. Either way, it looks at which opcode block
+contains the requested line:
 
 - inside an `equal` block: the line is unchanged, and its new position is
   computed from the block's offset.
@@ -119,5 +140,5 @@ python -m linetrace OLD NEW --line N
 ## Status
 
 Early skeleton. Supports single lines and ranges, plus text and JSON output,
-with a test suite covering the opcode resolution logic. Unified diff input
-and CRLF/encoding handling are still to come.
+against either two files or a unified diff, with a test suite covering the
+opcode resolution logic. CRLF and mixed-encoding handling are still to come.

@@ -1,6 +1,6 @@
 import unittest
 
-from linetrace import trace_line, trace_range
+from linetrace import parse_unified_diff, trace_line, trace_range, trace_range_from_diff
 
 
 class TraceLineEqualTest(unittest.TestCase):
@@ -107,6 +107,99 @@ class TraceRangeTest(unittest.TestCase):
     def test_start_greater_than_end_raises(self):
         with self.assertRaises(ValueError):
             trace_range(["a"], ["a"], 2, 1)
+
+
+class ParseUnifiedDiffTest(unittest.TestCase):
+    def test_no_hunks_is_all_equal(self):
+        old = ["a", "b", "c"]
+        opcodes = parse_unified_diff("--- a\n+++ b\n", len(old))
+        self.assertEqual(opcodes, [("equal", 0, 3, 0, 3)])
+
+    def test_one_to_one_replace_hunk(self):
+        diff = (
+            "--- a\n"
+            "+++ b\n"
+            "@@ -1,4 +1,4 @@\n"
+            " a\n"
+            "-b\n"
+            "+B\n"
+            " c\n"
+            " d\n"
+        )
+        old = ["a", "b", "c", "d"]
+        results = trace_range_from_diff(old, diff, 1, 4)
+        self.assertEqual(
+            results,
+            [
+                (1, "unchanged", 1),
+                (2, "modified", 2),
+                (3, "unchanged", 3),
+                (4, "unchanged", 4),
+            ],
+        )
+
+    def test_gap_before_hunk_is_unchanged(self):
+        # lines 1-3 sit outside the hunk's context and are never shown, but
+        # they must still resolve as unchanged, shifted by nothing since
+        # nothing before the hunk changed.
+        diff = "--- a\n+++ b\n@@ -4,3 +4,3 @@\n d\n-e\n+E\n f\n"
+        old = ["a", "b", "c", "d", "e", "f"]
+        results = trace_range_from_diff(old, diff, 1, 6)
+        self.assertEqual(
+            results,
+            [
+                (1, "unchanged", 1),
+                (2, "unchanged", 2),
+                (3, "unchanged", 3),
+                (4, "unchanged", 4),
+                (5, "modified", 5),
+                (6, "unchanged", 6),
+            ],
+        )
+
+    def test_trailing_lines_after_last_hunk_are_unchanged(self):
+        diff = "--- a\n+++ b\n@@ -1,2 +1,2 @@\n-a\n+A\n b\n"
+        old = ["a", "b", "c"]
+        results = trace_range_from_diff(old, diff, 1, 3)
+        self.assertEqual(
+            results,
+            [
+                (1, "modified", 1),
+                (2, "unchanged", 2),
+                (3, "unchanged", 3),
+            ],
+        )
+
+    def test_pure_insertion_hunk_shifts_lines_after_it(self):
+        diff = "--- a\n+++ b\n@@ -2,0 +3,2 @@\n+X\n+Y\n"
+        old = ["a", "b", "c"]
+        results = trace_range_from_diff(old, diff, 1, 3)
+        self.assertEqual(
+            results,
+            [
+                (1, "unchanged", 1),
+                (2, "unchanged", 2),
+                (3, "unchanged", 5),
+            ],
+        )
+
+    def test_pure_deletion_hunk_leaves_deleted_lines_unmapped(self):
+        diff = "--- a\n+++ b\n@@ -1,2 +0,0 @@\n-a\n-b\n"
+        old = ["a", "b", "c"]
+        results = trace_range_from_diff(old, diff, 1, 3)
+        self.assertEqual(
+            results,
+            [
+                (1, "deleted", None),
+                (2, "deleted", None),
+                (3, "unchanged", 1),
+            ],
+        )
+
+    def test_out_of_range_line_beyond_old_file(self):
+        diff = "--- a\n+++ b\n@@ -1,2 +1,2 @@\n a\n a\n"
+        results = trace_range_from_diff(["x", "y"], diff, 1, 3)
+        self.assertEqual(results[2], (3, "out_of_range", None))
 
 
 if __name__ == "__main__":

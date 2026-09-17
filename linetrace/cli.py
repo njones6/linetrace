@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from . import trace_range
+from . import trace_range, trace_range_from_diff
 
 STATUS_TEXT = {
     "unchanged": "unchanged, now at line {n}",
@@ -25,16 +25,19 @@ def parse_line_spec(value):
     return (start, end)
 
 
-def read_lines(path, stdin_used):
-    """Read a file's lines. `path` of "-" means stdin, allowed only once."""
+def read_text(path, stdin_used):
+    """Read a file's raw text. `path` of "-" means stdin, allowed only once."""
     if path == "-":
         if stdin_used:
-            raise ValueError("cannot read stdin for both files")
-        text = sys.stdin.read()
-    else:
-        with open(path, encoding="utf-8") as handle:
-            text = handle.read()
-    return text.splitlines()
+            raise ValueError("cannot read stdin for more than one input")
+        return sys.stdin.read()
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def read_lines(path, stdin_used):
+    """Read a file's lines. `path` of "-" means stdin, allowed only once."""
+    return read_text(path, stdin_used).splitlines()
 
 
 def build_parser():
@@ -46,7 +49,19 @@ def build_parser():
         ),
     )
     parser.add_argument("old", help="path to the old file, or - for stdin")
-    parser.add_argument("new", help="path to the new file, or - for stdin")
+    parser.add_argument(
+        "new",
+        nargs="?",
+        help="path to the new file, or - for stdin (omit if --diff is given)",
+    )
+    parser.add_argument(
+        "--diff",
+        metavar="PATCH",
+        help=(
+            "unified diff file (or - for stdin) describing the change, used "
+            "instead of NEW when you don't have the new file itself"
+        ),
+    )
     parser.add_argument(
         "--line",
         type=parse_line_spec,
@@ -76,19 +91,33 @@ def format_json(results, old_line_count):
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
-    if args.old == "-" and args.new == "-":
-        print("linetrace: only one of OLD/NEW can be -", file=sys.stderr)
+    if args.new is None and args.diff is None:
+        print("linetrace: one of NEW or --diff is required", file=sys.stderr)
+        return 2
+    if args.new is not None and args.diff is not None:
+        print("linetrace: NEW and --diff are mutually exclusive", file=sys.stderr)
+        return 2
+
+    stdin_inputs = [value for value in (args.old, args.new, args.diff) if value == "-"]
+    if len(stdin_inputs) > 1:
+        print("linetrace: only one input can be -", file=sys.stderr)
         return 2
 
     try:
         old_lines = read_lines(args.old, stdin_used=False)
-        new_lines = read_lines(args.new, stdin_used=(args.old == "-"))
+        if args.diff is not None:
+            diff_text = read_text(args.diff, stdin_used=(args.old == "-"))
+        else:
+            new_lines = read_lines(args.new, stdin_used=(args.old == "-"))
     except (OSError, ValueError) as exc:
         print(f"linetrace: {exc}", file=sys.stderr)
         return 2
 
     start, end = args.line
-    results = trace_range(old_lines, new_lines, start, end)
+    if args.diff is not None:
+        results = trace_range_from_diff(old_lines, diff_text, start, end)
+    else:
+        results = trace_range(old_lines, new_lines, start, end)
     any_out_of_range = any(status == "out_of_range" for _, status, _ in results)
 
     if args.format == "json":
