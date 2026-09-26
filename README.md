@@ -74,6 +74,20 @@ line 18: modified, now approximately at line 22
 Each line in the range is resolved independently and printed on its own
 line, in order.
 
+### Encoding and line endings
+
+Files and stdin are read as UTF-8 by default (`utf-8-sig`, so a leading
+byte-order mark is stripped rather than glued onto the first line). Pass
+`--encoding` if a file uses something else:
+
+```
+$ linetrace legacy_v1.txt legacy_v2.txt --line 5 --encoding latin-1
+```
+
+Line splitting treats CR, LF, and CRLF as equivalent line endings, so
+comparing a Windows-edited file against a Unix one, or a file with mixed
+endings, works the same as comparing two consistent files.
+
 ### JSON output
 
 ```
@@ -141,4 +155,5 @@ python -m linetrace OLD NEW --line N
 
 Early skeleton. Supports single lines and ranges, plus text and JSON output,
 against either two files or a unified diff, with a test suite covering the
-opcode resolution logic. CRLF and mixed-encoding handling are still to come.
+opcode resolution logic and encoding/line-ending handling. Multi-file patches
+(picking one target file out of a patch touching several) are still to come.

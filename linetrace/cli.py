@@ -25,19 +25,36 @@ def parse_line_spec(value):
     return (start, end)
 
 
-def read_text(path, stdin_used):
-    """Read a file's raw text. `path` of "-" means stdin, allowed only once."""
+def read_text(path, stdin_used, encoding):
+    """Read a file's raw text, decoded from bytes. `path` of "-" means stdin, allowed only once.
+
+    Reading bytes and decoding ourselves, rather than opening in text mode,
+    means the same code path works for both real files and stdin - stdin's
+    encoding otherwise depends on the platform's locale, which isn't a given
+    for input piped from somewhere like `git show`.
+    """
     if path == "-":
         if stdin_used:
             raise ValueError("cannot read stdin for more than one input")
-        return sys.stdin.read()
-    with open(path, encoding="utf-8") as handle:
-        return handle.read()
+        data = sys.stdin.buffer.read()
+    else:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    try:
+        return data.decode(encoding)
+    except LookupError as exc:
+        raise ValueError(f"unknown encoding {encoding!r}") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path}: could not decode as {encoding}: {exc}") from exc
 
 
-def read_lines(path, stdin_used):
-    """Read a file's lines. `path` of "-" means stdin, allowed only once."""
-    return read_text(path, stdin_used).splitlines()
+def read_lines(path, stdin_used, encoding):
+    """Read a file's lines. `path` of "-" means stdin, allowed only once.
+
+    str.splitlines() splits on CR, LF, and CRLF alike, so old and new files
+    with different line-ending conventions still compare line-for-line.
+    """
+    return read_text(path, stdin_used, encoding).splitlines()
 
 
 def build_parser():
@@ -75,6 +92,16 @@ def build_parser():
         default="text",
         help="output format (default: text)",
     )
+    parser.add_argument(
+        "--encoding",
+        default="utf-8-sig",
+        metavar="ENC",
+        help=(
+            "text encoding for OLD, NEW, and PATCH (default: utf-8-sig, which "
+            "reads plain UTF-8 fine and also strips a UTF-8 byte-order mark "
+            "if one is present)"
+        ),
+    )
     return parser
 
 
@@ -104,11 +131,11 @@ def main(argv=None):
         return 2
 
     try:
-        old_lines = read_lines(args.old, stdin_used=False)
+        old_lines = read_lines(args.old, stdin_used=False, encoding=args.encoding)
         if args.diff is not None:
-            diff_text = read_text(args.diff, stdin_used=(args.old == "-"))
+            diff_text = read_text(args.diff, stdin_used=(args.old == "-"), encoding=args.encoding)
         else:
-            new_lines = read_lines(args.new, stdin_used=(args.old == "-"))
+            new_lines = read_lines(args.new, stdin_used=(args.old == "-"), encoding=args.encoding)
     except (OSError, ValueError) as exc:
         print(f"linetrace: {exc}", file=sys.stderr)
         return 2
