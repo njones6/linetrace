@@ -84,14 +84,120 @@ def trace_range(old_lines, new_lines, start, end):
     return _trace_range_with_opcodes(matcher.get_opcodes(), len(old_lines), start, end)
 
 
+def _clean_diff_path(raw):
+    """Reduce a ---/+++ header path to a bare path: no timestamp, no a/ or b/ prefix."""
+    path = raw.split("\t", 1)[0].strip()
+    if path != "/dev/null" and path[:2] in ("a/", "b/"):
+        path = path[2:]
+    return path
+
+
+def split_file_diffs(diff_text):
+    """Split a unified diff into one entry per file it touches.
+
+    Returns a list of (old_path, new_path, text) tuples, where text holds
+    just that file's hunks and can be fed to parse_unified_diff. Hunk bodies
+    are skipped using the line counts in their headers, so a removed line
+    whose content happens to start with "-- " is not mistaken for the start
+    of the next file. Text before the first file header (a commit message,
+    say) is ignored, as are git's index/mode/similarity lines.
+    """
+    lines = diff_text.splitlines()
+    files = []
+    current = None
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+
+        if line.startswith("diff --git "):
+            # Paths here are only a fallback for patches with no ---/+++
+            # lines (pure renames); the ---/+++ pair below overrides them.
+            old_part, _, new_part = line[len("diff --git "):].partition(" b/")
+            current = {"old": _clean_diff_path(old_part), "new": new_part, "body": [], "named": False}
+            files.append(current)
+            idx += 1
+        elif line.startswith("--- ") and idx + 1 < len(lines) and lines[idx + 1].startswith("+++ "):
+            if current is None or current["named"] or current["body"]:
+                current = {"old": "", "new": "", "body": [], "named": False}
+                files.append(current)
+            current["old"] = _clean_diff_path(line[4:])
+            current["new"] = _clean_diff_path(lines[idx + 1][4:])
+            current["named"] = True
+            idx += 2
+        else:
+            match = _HUNK_HEADER_RE.match(line)
+            if match is None or current is None:
+                idx += 1
+                continue
+            old_left = int(match.group(2)) if match.group(2) is not None else 1
+            new_left = int(match.group(4)) if match.group(4) is not None else 1
+            current["body"].append(line)
+            idx += 1
+            while (old_left > 0 or new_left > 0) and idx < len(lines):
+                body_line = lines[idx]
+                if body_line.startswith(" "):
+                    old_left -= 1
+                    new_left -= 1
+                elif body_line.startswith("-"):
+                    old_left -= 1
+                elif body_line.startswith("+"):
+                    new_left -= 1
+                elif not body_line.startswith("\\"):
+                    break
+                current["body"].append(body_line)
+                idx += 1
+            # a "\ No newline" marker trails the last line of the hunk
+            while idx < len(lines) and lines[idx].startswith("\\"):
+                current["body"].append(lines[idx])
+                idx += 1
+
+    return [(f["old"], f["new"], "\n".join(f["body"])) for f in files if f["body"] or f["named"]]
+
+
+def select_file_diff(diff_text, target=None):
+    """Pick the one file's diff to use out of a possibly multi-file patch.
+
+    `target` is matched against both the old and new path of each file,
+    either exactly or as a trailing run of path components ("server.py"
+    matches "src/server.py"). With no target, the patch must touch exactly
+    one file, or contain bare hunks with no file headers at all.
+
+    Raises ValueError if nothing matches, if the match is ambiguous, or if
+    no target was given for a multi-file patch.
+    """
+    files = split_file_diffs(diff_text)
+
+    if target is None:
+        if not files:
+            return diff_text
+        if len(files) == 1:
+            return files[0][2]
+        names = ", ".join(new if new != "/dev/null" else old for old, new, _ in files)
+        raise ValueError(f"patch touches {len(files)} files ({names}); pick one with --target")
+
+    wanted = target.replace("\\", "/")
+    while wanted.startswith("./"):
+        wanted = wanted[2:]
+
+    def matches(path):
+        return path != "/dev/null" and (path == wanted or path.endswith("/" + wanted))
+
+    found = [entry for entry in files if matches(entry[0]) or matches(entry[1])]
+    if not found:
+        raise ValueError(f"no file matching {target!r} in the patch")
+    if len(found) > 1:
+        raise ValueError(f"{target!r} matches more than one file in the patch; use a longer path")
+    return found[0][2]
+
+
 def parse_unified_diff(diff_text, old_line_count):
     """Parse a unified diff into difflib-style opcodes over `old_line_count` lines.
 
     Only hunk headers and the +/-/space line prefixes are read; the actual
     old and new file contents are never consulted, so this works from a
     patch alone. A patch covering more than one file will have its hunks
-    read as if they all applied to the same file - callers are expected to
-    pass a single-file diff.
+    read as if they all applied to the same file, so run multi-file patches
+    through select_file_diff first.
 
     Returns a list of (tag, i1, i2, j1, j2) tuples covering every index in
     [0, old_line_count), in the same shape as difflib.SequenceMatcher.get_opcodes().

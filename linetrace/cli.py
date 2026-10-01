@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from . import trace_range, trace_range_from_diff
+from . import select_file_diff, trace_range, trace_range_from_diff
 
 STATUS_TEXT = {
     "unchanged": "unchanged, now at line {n}",
@@ -80,6 +80,14 @@ def build_parser():
         ),
     )
     parser.add_argument(
+        "--target",
+        metavar="FILE",
+        help=(
+            "which file to use when --diff holds a patch for several; matched "
+            "against the old or new path, so a trailing part like server.py is enough"
+        ),
+    )
+    parser.add_argument(
         "--line",
         type=parse_line_spec,
         required=True,
@@ -125,7 +133,11 @@ def main(argv=None):
         print("linetrace: NEW and --diff are mutually exclusive", file=sys.stderr)
         return 2
 
-    stdin_inputs = [value for value in (args.old, args.new, args.diff) if value == "-"]
+    if args.target is not None and args.diff is None:
+        print("linetrace: --target only applies together with --diff", file=sys.stderr)
+        return 2
+
+    stdin_inputs =[value for value in (args.old, args.new, args.diff) if value == "-"]
     if len(stdin_inputs) > 1:
         print("linetrace: only one input can be -", file=sys.stderr)
         return 2
@@ -134,6 +146,7 @@ def main(argv=None):
         old_lines = read_lines(args.old, stdin_used=False, encoding=args.encoding)
         if args.diff is not None:
             diff_text = read_text(args.diff, stdin_used=(args.old == "-"), encoding=args.encoding)
+            diff_text = select_file_diff(diff_text, args.target)
         else:
             new_lines = read_lines(args.new, stdin_used=(args.old == "-"), encoding=args.encoding)
     except (OSError, ValueError) as exc:

@@ -54,6 +54,22 @@ line 88: modified, now approximately at line 94
 A patch that only covers part of the file works fine: lines outside any
 hunk are assumed unchanged, shifted by whatever hunks came before them.
 
+### Patches that touch several files
+
+A patch from `git diff` or a PR usually covers more than one file. Say which
+one `OLD` corresponds to with `--target`:
+
+```
+$ git diff main..feature > all.patch
+$ linetrace src/server.py --diff all.patch --target src/server.py --line 88
+line 88: modified, now approximately at line 94
+```
+
+`--target` is compared with both the old and new path in each file header,
+and a trailing part of the path is enough (`server.py`) as long as it picks
+out one file. Without `--target`, a patch for several files is an error that
+lists the files it found. A single-file patch needs no `--target`.
+
 ### A line that no longer exists
 
 ```
@@ -156,4 +172,4 @@ python -m linetrace OLD NEW --line N
 Early skeleton. Supports single lines and ranges, plus text and JSON output,
 against either two files or a unified diff, with a test suite covering the
 opcode resolution logic and encoding/line-ending handling. Multi-file patches
-(picking one target file out of a patch touching several) are still to come.
+are handled by picking one file with `--target`.
